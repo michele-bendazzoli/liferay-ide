@@ -17,7 +17,6 @@ package com.liferay.ide.eclipse.theme.core;
 
 import com.liferay.ide.eclipse.core.ILiferayConstants;
 import com.liferay.ide.eclipse.core.util.CoreUtil;
-import com.liferay.ide.eclipse.project.core.util.ProjectUtil;
 import com.liferay.ide.eclipse.sdk.ISDKConstants;
 import com.liferay.ide.eclipse.sdk.SDK;
 import com.liferay.ide.eclipse.sdk.util.SDKUtil;
@@ -45,6 +44,7 @@ import org.eclipse.core.runtime.IStatus;
 public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 
 	public static final String ID = "com.liferay.ide.eclipse.theme.core.cssBuilder";
+    public static final String NAME = "Theme CSS Builder";
 
 	@Override
 	protected IProject[] build(int kind, Map args, IProgressMonitor monitor) {
@@ -65,37 +65,37 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 
 	protected void incrementalBuild(IResourceDelta delta, IProgressMonitor monitor) {
 		int deltaKind = delta.getKind();
-		
-		if (deltaKind == IResourceDelta.REMOVED || deltaKind == IResourceDelta.REMOVED_PHANTOM) {
+
+		if (deltaKind == IResourceDelta.REMOVED) {
 			return;
 		}
-		
-		final boolean[] buildCSS = new boolean[1];
-		
+
+//		final boolean[] buildCSS = new boolean[1];
+
 		try {
 			delta.accept(new IResourceDeltaVisitor() {
-				
+
 				private IFolder docroot = null;
 
 				public boolean visit(IResourceDelta delta) {
 					IPath fullResourcePath = delta.getResource().getFullPath();
-					
+
 					for (String segment : fullResourcePath.segments()) {
 						if ("_diffs".equals(segment)) {
 							if (docroot == null) {
 								docroot = CoreUtil.getDocroot(getProject());
 							}
-							
+
 							IFolder diffs = docroot.getFolder("_diffs");
-							
+
 							if (diffs.exists() && diffs.getFullPath().isPrefixOf(fullResourcePath)) {
-								buildCSS[0] = true;
-								
+								applyDiffsDeltaToDocroot(delta);
+
 								return false;
 							}
 						}
 					}
-					
+
 					return true; // visit children too
 				}
 			});
@@ -103,18 +103,32 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 		catch (CoreException e) {
 			e.printStackTrace();
 		}
-		
-		if (buildCSS[0]) {
-			try {
-				cssBuild(getProject());
-			}
-			catch (CoreException e) {
-				ThemeCore.logError("Error in Theme CSS Builder", e);
-			}
-		}
+
+//		if (buildCSS[0]) {
+//			try {
+//				cssBuild(getProject());
+//			}
+//			catch (CoreException e) {
+//				ThemeCore.logError("Error in Theme CSS Builder", e);
+//			}
+//		}
 	}
 
-	protected void fullBuild(Map args, IProgressMonitor monitor) {
+	protected void applyDiffsDeltaToDocroot( IResourceDelta delta )
+    {
+        int deltaKind = delta.getKind();
+
+        switch (deltaKind)
+        {
+            case IResourceDelta.REMOVED_PHANTOM:
+                System.out.println();
+                break;
+        }
+
+        System.out.println(delta);
+    }
+
+    protected void fullBuild(Map args, IProgressMonitor monitor) {
 		try {
 			if (shouldFullBuild(args)) {
 				cssBuild(getProject(args));
@@ -131,6 +145,11 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 
 	protected boolean shouldFullBuild(Map args)
 		throws CoreException {
+        if (args != null && args.get( "force" ) != null && args.get( "force" ).equals( "true" ))
+        {
+            return true;
+        }
+
 		// check to see if there is any files in the _diffs folder
 		IFolder docroot = CoreUtil.getDocroot(getProject());
 
