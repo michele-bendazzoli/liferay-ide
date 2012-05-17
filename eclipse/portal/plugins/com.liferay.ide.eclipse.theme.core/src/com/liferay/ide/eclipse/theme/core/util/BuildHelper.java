@@ -2,7 +2,6 @@ package com.liferay.ide.eclipse.theme.core.util;
 
 import com.liferay.ide.eclipse.theme.core.ThemeCore;
 
-import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -12,10 +11,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipOutputStream;
 
-import org.eclipse.core.resources.IContainer;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
@@ -30,11 +26,9 @@ import org.eclipse.core.runtime.Status;
 import org.eclipse.osgi.util.NLS;
 import org.eclipse.wst.server.core.internal.Messages;
 import org.eclipse.wst.server.core.internal.ProgressUtil;
-import org.eclipse.wst.server.core.internal.ServerPlugin;
-import org.eclipse.wst.server.core.internal.Trace;
 
 @SuppressWarnings( "restriction" )
-public class PublishHelper
+public class BuildHelper
 {
 
     // size of the buffer
@@ -58,13 +52,13 @@ public class PublishHelper
      *            a temporary directory to use during publishing, or <code>null</code> to use the default. If it does
      *            not exist, the folder will be created
      */
-    public PublishHelper( File tempDirectory )
+    public BuildHelper()
     {
-        this.tempDir = tempDirectory;
-        if( tempDir == null )
-            tempDir = defaultTempDir;
-        else if( !tempDir.exists() )
+        tempDir = defaultTempDir;
+        if( !tempDir.exists() )
+        {
             tempDir.mkdirs();
+        }
     }
 
     /**
@@ -150,7 +144,7 @@ public class PublishHelper
     public static IStatus[] deleteDirectory( File dir, IProgressMonitor monitor )
     {
         if( !dir.exists() || !dir.isDirectory() )
-            return new IStatus[] { new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+            return new IStatus[] { new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                 Messages.errorNotADirectory, dir.getAbsolutePath() ), null ) };
 
         List<IStatus> status = new ArrayList<IStatus>( 2 );
@@ -171,7 +165,7 @@ public class PublishHelper
                 {
                     if( !current.delete() )
                     {
-                        status.add( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+                        status.add( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                             Messages.errorDeleting, files[i].getAbsolutePath() ), null ) );
                         deleteCurrent = false;
                     }
@@ -189,17 +183,14 @@ public class PublishHelper
                 }
             }
             if( deleteCurrent && !dir.delete() )
-                status.add( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+                status.add( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                     Messages.errorDeleting, dir.getAbsolutePath() ), null ) );
             monitor.done();
         }
         catch( Exception e )
         {
-            if( Trace.SEVERE )
-            {
-                Trace.trace( Trace.STRING_SEVERE, "Error deleting directory " + dir.getAbsolutePath(), e );
-            }
-            status.add( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, e.getLocalizedMessage(), null ) );
+            ThemeCore.logError( "Error deleting directory " + dir.getAbsolutePath(), e );
+            status.add( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, e.getLocalizedMessage(), null ) );
         }
 
         IStatus[] stat = new IStatus[status.size()];
@@ -313,7 +304,7 @@ public class PublishHelper
                             else
                             {
                                 if( !toFiles[i].delete() )
-                                    status.add( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+                                    status.add( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                                         Messages.errorDeleting, toFiles[i].getAbsolutePath() ), null ) );
                             }
                         }
@@ -326,7 +317,7 @@ public class PublishHelper
             { // if (toDir.isFile())
                 if( !toDir.delete() )
                 {
-                    status.add( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+                    status.add( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                         Messages.errorDeleting, toDir.getAbsolutePath() ), null ) );
                     IStatus[] stat = new IStatus[status.size()];
                     status.toArray( stat );
@@ -336,7 +327,7 @@ public class PublishHelper
         }
         if( !foundExistingDir && !toDir.mkdirs() )
         {
-            status.add( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+            status.add( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                 Messages.errorMkdir, toDir.getAbsolutePath() ), null ) );
             IStatus[] stat = new IStatus[status.size()];
             status.toArray( stat );
@@ -522,24 +513,36 @@ public class PublishHelper
         if( resource instanceof IFile )
         {
             IFile file = (IFile) resource;
+
             try
             {
                 if( kind2 == IResourceDelta.REMOVED )
+                {
                     deleteFile( path, file );
+                }
                 else
                 {
-                    IPath path2 = path.append( file.getProjectRelativePath() ).append( file.getName() );
-                    File f = path2.toFile().getParentFile();
-                    if( !f.exists() )
-                        f.mkdirs();
+                    IPath diffsRelativePath = getDiffsRelativePath(file.getProjectRelativePath());
 
-                    copyFile( file, path2 );
+                    if (diffsRelativePath != null)
+                    {
+                        IPath path2 = path.append( diffsRelativePath );
+                        File f = path2.toFile().getParentFile();
+
+                        if( !f.exists() )
+                        {
+                            f.mkdirs();
+                        }
+
+                        copyFile( file, path2 );
+                    }
                 }
             }
             catch( CoreException ce )
             {
                 status.add( ce.getStatus() );
             }
+
             IStatus[] stat = new IStatus[status.size()];
             status.toArray( stat );
             return stat;
@@ -547,15 +550,23 @@ public class PublishHelper
 
         if( kind2 == IResourceDelta.ADDED )
         {
-            IPath path2 = path.append( resource.getProjectRelativePath() ).append( resource.getName() );
-            File file = path2.toFile();
-            if( !file.exists() && !file.mkdirs() )
+            // find relative path from _diffs and append that to path.
+            IPath diffsPath = resource.getProjectRelativePath();
+            IPath diffsRelativePath = getDiffsRelativePath( diffsPath );
+
+            if (diffsRelativePath != null)
             {
-                status.add( new Status(
-                    IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind( Messages.errorMkdir, path2 ), null ) );
-                IStatus[] stat = new IStatus[status.size()];
-                status.toArray( stat );
-                return stat;
+                IPath path2 = path.append(diffsRelativePath);
+//                IPath path2 = path.append( resource.getProjectRelativePath() ).append( resource.getName() );
+                File file = path2.toFile();
+                if( !file.exists() && !file.mkdirs() )
+                {
+                    status.add( new Status(
+                        IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind( Messages.errorMkdir, path2 ), null ) );
+                    IStatus[] stat = new IStatus[status.size()];
+                    status.toArray( stat );
+                    return stat;
+                }
             }
         }
 
@@ -569,12 +580,19 @@ public class PublishHelper
 
         if( kind2 == IResourceDelta.REMOVED )
         {
-            IPath path2 = path.append( resource.getProjectRelativePath() ).append( resource.getName() );
-            File file = path2.toFile();
-            if( file.exists() && !file.delete() )
+            IPath diffsRelativePath = getDiffsRelativePath( resource.getProjectRelativePath() );
+
+            if (diffsRelativePath != null)
             {
-                status.add( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
-                    Messages.errorDeleting, path2 ), null ) );
+                IPath path2 = path.append(diffsRelativePath);
+                //IPath path2 = path.append( resource.getProjectRelativePath() ).append( resource.getName() );
+                File file = path2.toFile();
+
+                if( file.exists() && !file.delete() )
+                {
+                    status.add( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
+                        Messages.errorDeleting, path2 ), null ) );
+                }
             }
         }
 
@@ -583,25 +601,40 @@ public class PublishHelper
         return stat;
     }
 
+    private static IPath getDiffsRelativePath(IPath diffsPath)
+    {
+        IPath diffsRelativePath = null;
+
+        for (int i = 0; i < diffsPath.segmentCount(); i++)
+        {
+            if ("_diffs".equals(diffsPath.segment( i )))
+            {
+                diffsRelativePath = diffsPath.removeFirstSegments( i + 1 );
+                break;
+            }
+        }
+
+        return diffsRelativePath;
+    }
+
     private static void deleteFile( IPath path, IFile file ) throws CoreException
     {
-        if( Trace.PUBLISHING )
+        IPath diffsPath = file.getProjectRelativePath();
+        IPath diffsRelativePath = getDiffsRelativePath( diffsPath );
+
+        if (diffsRelativePath != null)
         {
-            Trace.trace( Trace.STRING_PUBLISHING, "Deleting: " + file.getName() + " from " + path.toString() );
+//            IPath path2 = path.append( file.getProjectRelativePath() ).append( file.getName() );
+            IPath path2 = path.append(diffsRelativePath);
+
+            if( path2.toFile().exists() && !path2.toFile().delete() )
+                throw new CoreException( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
+                    Messages.errorDeleting, path2 ), null ) );
         }
-        IPath path2 = path.append( file.getProjectRelativePath() ).append( file.getName() );
-        if( path2.toFile().exists() && !path2.toFile().delete() )
-            throw new CoreException( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
-                Messages.errorDeleting, path2 ), null ) );
     }
 
     private void copyFile( IFile mf, IPath path ) throws CoreException
     {
-        if( Trace.PUBLISHING )
-        {
-            Trace.trace( Trace.STRING_PUBLISHING, "Copying: " + mf.getName() + " to " + path.toString() );
-        }
-
         if( !isCopyFile( mf, path ) )
         {
             return;
@@ -620,7 +653,7 @@ public class PublishHelper
             }
             catch( IOException e )
             {
-                throw new CoreException( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+                throw new CoreException( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                     Messages.errorReading, file2.getAbsolutePath() ), e ) );
             }
             copyFile( in, path, file2.lastModified(), mf );
@@ -674,11 +707,7 @@ public class PublishHelper
 
     private IStatus[] copy( IResource resource, IPath path, IProgressMonitor monitor )
     {
-        String name = resource.getName();
-        if( Trace.PUBLISHING )
-        {
-            Trace.trace( Trace.STRING_PUBLISHING, "Copying: " + name + " to " + path.toString() );
-        }
+//        String name = resource.getName();
         List<IStatus> status = new ArrayList<IStatus>( 2 );
         if( resource instanceof IFolder )
         {
@@ -698,160 +727,33 @@ public class PublishHelper
         else
         {
             IFile mf = (IFile) resource;
-            path = path.append( mf.getProjectRelativePath() ).append( name );
-            File f = path.toFile().getParentFile();
-            if( !f.exists() )
-                f.mkdirs();
-            try
+
+            IPath diffsRelativePath = getDiffsRelativePath( mf.getProjectRelativePath());
+
+            if (diffsRelativePath != null)
             {
-                copyFile( mf, path );
+//              path = path.append( mf.getProjectRelativePath() ).append( name );
+                path = path.append(diffsRelativePath);
+
+                File f = path.toFile().getParentFile();
+                if( !f.exists() )
+                    f.mkdirs();
+                try
+                {
+                    copyFile( mf, path );
+                }
+                catch( CoreException ce )
+                {
+                    status.add( ce.getStatus() );
+                }
             }
-            catch( CoreException ce )
-            {
-                status.add( ce.getStatus() );
-            }
+
+
+
         }
         IStatus[] stat = new IStatus[status.size()];
         status.toArray( stat );
         return stat;
-    }
-
-    /**
-     * Creates a new zip file containing the given module resources. Deletes the existing file (and doesn't create a new
-     * one) if resources is null or empty.
-     *
-     * @param resources
-     *            an array of module resources
-     * @param path
-     *            the path where the zip file should be created
-     * @param monitor
-     *            a progress monitor, or <code>null</code> if progress reporting and cancellation are not desired
-     * @return a possibly-empty array of error and warning status
-     */
-    public IStatus[] publishZip( IResource[] resources, IPath path, IProgressMonitor monitor )
-    {
-        if( resources == null || resources.length == 0 )
-        {
-            // should also check if resources consists of all empty directories
-            File file = path.toFile();
-            if( file.exists() )
-                file.delete();
-            return EMPTY_STATUS;
-        }
-
-        monitor = ProgressUtil.getMonitorFor( monitor );
-
-        File tempFile = null;
-        try
-        {
-            File file = path.toFile();
-            tempFile = File.createTempFile( TEMPFILE_PREFIX, "." + path.getFileExtension(), tempDir );
-
-            BufferedOutputStream bout = new BufferedOutputStream( new FileOutputStream( tempFile ) );
-            ZipOutputStream zout = new ZipOutputStream( bout );
-            addZipEntries( zout, resources );
-            zout.close();
-
-            moveTempFile( tempFile, file );
-        }
-        catch( CoreException e )
-        {
-            return new IStatus[] { e.getStatus() };
-        }
-        catch( Exception e )
-        {
-            if( Trace.SEVERE )
-            {
-                Trace.trace( Trace.STRING_SEVERE, "Error zipping", e );
-            }
-            return new Status[] { new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
-                Messages.errorCreatingZipFile, path.lastSegment(), e.getLocalizedMessage() ), e ) };
-        }
-        finally
-        {
-            if( tempFile != null && tempFile.exists() )
-                tempFile.deleteOnExit();
-        }
-        return EMPTY_STATUS;
-    }
-
-    private static void addZipEntries( ZipOutputStream zout, IResource[] resources ) throws Exception
-    {
-        if( resources == null )
-            return;
-
-        int size = resources.length;
-        for( int i = 0; i < size; i++ )
-        {
-            if( resources[i] instanceof IFolder )
-            {
-                IFolder mf = (IFolder) resources[i];
-                IResource[] res = mf.members();
-
-                IPath path = mf.getProjectRelativePath().append( mf.getName() );
-                String entryPath = path.toPortableString();
-                if( !entryPath.endsWith( "/" ) )
-                    entryPath += '/';
-
-                ZipEntry ze = new ZipEntry( entryPath );
-
-                long ts = 0;
-                IContainer folder = (IContainer) mf.getAdapter( IContainer.class );
-                if( folder != null )
-                    ts = folder.getLocalTimeStamp();
-
-                if( ts != IResource.NULL_STAMP && ts != 0 )
-                    ze.setTime( ts );
-
-                zout.putNextEntry( ze );
-                zout.closeEntry();
-
-                addZipEntries( zout, res );
-                continue;
-            }
-
-            IFile mf = (IFile) resources[i];
-            IPath path = mf.getProjectRelativePath().append( mf.getName() );
-
-            ZipEntry ze = new ZipEntry( path.toPortableString() );
-
-            InputStream in = null;
-            long ts = 0;
-            IFile file = (IFile) mf.getAdapter( IFile.class );
-            if( file != null )
-            {
-                ts = file.getLocalTimeStamp();
-                in = file.getContents();
-            }
-            else
-            {
-                File file2 = (File) mf.getAdapter( File.class );
-                ts = file2.lastModified();
-                in = new FileInputStream( file2 );
-            }
-
-            if( ts != IResource.NULL_STAMP && ts != 0 )
-                ze.setTime( ts );
-
-            zout.putNextEntry( ze );
-
-            try
-            {
-                int n = 0;
-                while( n > -1 )
-                {
-                    n = in.read( buf );
-                    if( n > 0 )
-                        zout.write( buf, 0, n );
-                }
-            }
-            finally
-            {
-                in.close();
-            }
-
-            zout.closeEntry();
-        }
     }
 
     /**
@@ -918,7 +820,7 @@ public class PublishHelper
                     if( !status.isOK() )
                     {
                         MultiStatus status2 =
-                            new MultiStatus( ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+                            new MultiStatus( ThemeCore.PLUGIN_ID, 0, NLS.bind(
                                 Messages.errorDeleting, file.toString() ), null );
                         status2.add( status );
                         throw new CoreException( status2 );
@@ -935,12 +837,12 @@ public class PublishHelper
                 }
                 /*
                  * if (!safeDelete(file, 8)) { tempFile.delete(); throw new CoreException(new Status(IStatus.ERROR,
-                 * ServerPlugin.PLUGIN_ID, 0, NLS.bind(Messages.errorDeleting, file.toString()), null)); }
+                 * ThemeCore.PLUGIN_ID, 0, NLS.bind(Messages.errorDeleting, file.toString()), null)); }
                  */
             }
         }
         if( !safeRename( tempFile, file, 10 ) )
-            throw new CoreException( new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+            throw new CoreException( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                 Messages.errorRename, tempFile.toString() ), null ) );
     }
 
@@ -971,11 +873,8 @@ public class PublishHelper
         }
         catch( Exception e )
         {
-            if( Trace.SEVERE )
-            {
-                Trace.trace( Trace.STRING_SEVERE, "Error copying file", e );
-            }
-            return new Status( IStatus.ERROR, ServerPlugin.PLUGIN_ID, 0, NLS.bind(
+            ThemeCore.logError( "Error copying file", e );
+            return new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
                 Messages.errorCopyingFile, new String[] { to, e.getLocalizedMessage() } ), e );
         }
         finally

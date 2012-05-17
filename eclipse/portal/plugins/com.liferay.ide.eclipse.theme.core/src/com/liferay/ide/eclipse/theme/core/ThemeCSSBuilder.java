@@ -23,6 +23,7 @@ import com.liferay.ide.eclipse.sdk.util.SDKUtil;
 import com.liferay.ide.eclipse.server.core.ILiferayRuntime;
 import com.liferay.ide.eclipse.server.util.ServerUtil;
 import com.liferay.ide.eclipse.theme.core.operation.ThemeDescriptorHelper;
+import com.liferay.ide.eclipse.theme.core.util.BuildHelper;
 
 import java.io.IOException;
 import java.util.Map;
@@ -39,12 +40,23 @@ import org.eclipse.core.runtime.CoreException;
 import org.eclipse.core.runtime.IPath;
 import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
+import org.eclipse.core.runtime.Status;
+import org.eclipse.core.runtime.jobs.Job;
 
 @SuppressWarnings("rawtypes")
 public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 
 	public static final String ID = "com.liferay.ide.eclipse.theme.core.cssBuilder";
     public static final String NAME = "Theme CSS Builder";
+    private BuildHelper buildHelper;
+
+
+    public ThemeCSSBuilder()
+    {
+        super();
+
+        this.buildHelper = new BuildHelper();
+    }
 
 	@Override
 	protected IProject[] build(int kind, Map args, IProgressMonitor monitor) {
@@ -63,7 +75,7 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 		return null;
 	}
 
-	protected void incrementalBuild(IResourceDelta delta, IProgressMonitor monitor) {
+	protected void incrementalBuild(IResourceDelta delta, final IProgressMonitor monitor) {
 		int deltaKind = delta.getKind();
 
 		if (deltaKind == IResourceDelta.REMOVED) {
@@ -89,7 +101,7 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 							IFolder diffs = docroot.getFolder("_diffs");
 
 							if (diffs.exists() && diffs.getFullPath().isPrefixOf(fullResourcePath)) {
-								applyDiffsDeltaToDocroot(delta);
+								applyDiffsDeltaToDocroot(delta, docroot, monitor);
 
 								return false;
 							}
@@ -114,7 +126,7 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 //		}
 	}
 
-	protected void applyDiffsDeltaToDocroot( IResourceDelta delta )
+	protected void applyDiffsDeltaToDocroot( final IResourceDelta delta, final IFolder docroot, final IProgressMonitor monitor )
     {
         int deltaKind = delta.getKind();
 
@@ -125,7 +137,26 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
                 break;
         }
 
-        System.out.println(delta);
+        new Job("publish theme delta")
+        {
+            @Override
+            protected IStatus run( IProgressMonitor monitor )
+            {
+                buildHelper.publishDelta( delta, docroot.getRawLocation(), monitor );
+
+                try
+                {
+                    docroot.refreshLocal( IResource.DEPTH_INFINITE, monitor);
+                }
+                catch( CoreException e )
+                {
+                    e.printStackTrace();
+                }
+
+                return Status.OK_STATUS;
+            }
+        }.schedule();
+
     }
 
     protected void fullBuild(Map args, IProgressMonitor monitor) {
