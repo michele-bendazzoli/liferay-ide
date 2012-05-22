@@ -17,6 +17,7 @@ package com.liferay.ide.eclipse.theme.core;
 
 import com.liferay.ide.eclipse.core.ILiferayConstants;
 import com.liferay.ide.eclipse.core.util.CoreUtil;
+import com.liferay.ide.eclipse.core.util.FileUtil;
 import com.liferay.ide.eclipse.sdk.ISDKConstants;
 import com.liferay.ide.eclipse.sdk.SDK;
 import com.liferay.ide.eclipse.sdk.util.SDKUtil;
@@ -26,6 +27,8 @@ import com.liferay.ide.eclipse.theme.core.operation.ThemeDescriptorHelper;
 import com.liferay.ide.eclipse.theme.core.util.BuildHelper;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 
@@ -42,6 +45,9 @@ import org.eclipse.core.runtime.IProgressMonitor;
 import org.eclipse.core.runtime.IStatus;
 import org.eclipse.core.runtime.Status;
 import org.eclipse.core.runtime.jobs.Job;
+import org.w3c.dom.Document;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 @SuppressWarnings("rawtypes")
 public class ThemeCSSBuilder extends IncrementalProjectBuilder {
@@ -49,6 +55,8 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 	public static final String ID = "com.liferay.ide.eclipse.theme.core.cssBuilder";
     public static final String NAME = "Theme CSS Builder";
     private BuildHelper buildHelper;
+    
+    public static final String[] THEME_PARENTS = { "classic", "_styled", "_unstyled" };
 
 
     public ThemeCSSBuilder()
@@ -136,13 +144,47 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
                 System.out.println();
                 break;
         }
+        
+        final IPath path = CoreUtil.getResourceLocation(docroot);
+//        final IPath restoreLocation = getRestoreLocation(docroot);
+        String themeParent = getThemeParent(getProject());
+        
+        IPath themesPath = null;
+        try
+        {
+            ILiferayRuntime liferayRuntime = ServerUtil.getLiferayRuntime( getProject() );
+            themesPath = liferayRuntime.getPortalDir().append( "html/themes" );
+        }
+        catch( CoreException e1 )
+        {
+            e1.printStackTrace();
+        }
+        
+        final List<IPath> restorePaths = new ArrayList<IPath>();
+        
+        for (int i = 0; i < THEME_PARENTS.length; i++)
+        {
+            if (THEME_PARENTS[i].equals( themeParent ))
+            {
+                restorePaths.add( themesPath.append( THEME_PARENTS[i] ) );
+            }
+            else
+            {
+                if (restorePaths.size() > 0)
+                {
+                    restorePaths.add( themesPath.append( THEME_PARENTS[i]) );
+                }
+            }
+        }
+        
+        
 
         new Job("publish theme delta")
         {
             @Override
             protected IStatus run( IProgressMonitor monitor )
             {
-                buildHelper.publishDelta( delta, docroot.getRawLocation(), monitor );
+                buildHelper.publishDelta( delta, path, restorePaths.toArray( new IPath[0] ), monitor );
 
                 try
                 {
@@ -158,6 +200,110 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
         }.schedule();
 
     }
+
+    private String getThemeParent( IProject project )
+    {
+        String retval = null;
+        
+        try
+        {
+            Document buildXmlDoc = FileUtil.readXML( project.getFile( "build.xml" ).getContents(), null, null );
+            
+            NodeList properties = buildXmlDoc.getElementsByTagName( "property" );
+            
+            for (int i = 0; i < properties.getLength(); i++)
+            {
+                final Node item = properties.item( i );
+                Node name = item.getAttributes().getNamedItem( "name" );
+                
+                if (name != null && "theme.parent".equals(name.getNodeValue()))
+                {
+                    Node value = item.getAttributes().getNamedItem( "value" );
+                    
+                    retval = value.getNodeValue();
+                    break;
+                }
+            }
+        }
+        catch( CoreException e )
+        {
+            e.printStackTrace();
+        }
+        
+        if (retval == null)
+        {
+            retval = "_styled";
+        }
+        
+        return retval;
+    }
+
+//    private IPath getRestoreLocation( IFolder docroot )
+//    {
+//        IProject project = docroot.getProject();
+//        
+//        IPath restoreLocation = ThemeCore.getDefault().getStateLocation().append( project.getName() + "-restore-location" );
+//        
+//        File restoreDirectory = restoreLocation.toFile();
+//        
+//        if (!restoreDirectory.exists())
+//        {
+//            restoreDirectory.mkdirs();
+//        }
+//        
+//        if (restoreDirectory.list().length <= 0)
+//        {
+//            /* create a temp theme with the same build.xml and invoke theme compile and then extract the contents */
+//            SDK sdk = SDKUtil.getSDK( project );
+//            
+//            String tmpName = String.valueOf(System.currentTimeMillis());
+//            
+//            IPath tmpTheme = sdk.createNewThemeProject( tmpName, tmpName );
+//            
+//            File buildFile = CoreUtil.getResourceLocation( project.getFile( "build.xml" ) ).toFile();
+//            
+//            File newThemeDir = tmpTheme.toFile().listFiles()[0];
+//            
+//            FileUtil.copyFileToDir( buildFile, newThemeDir);
+//            
+//            IPath newThemeDestDir = CoreUtil.getResourceLocation( project ).removeLastSegments( 1 ).append( newThemeDir.getName() );
+//            
+//            try
+//            {
+//                FileUtils.copyDirectory( newThemeDir, newThemeDestDir.toFile() );
+//                SDKHelper helper = new SDKHelper( sdk );
+//                IPath newBuildFile = newThemeDestDir.append( "build.xml" );
+//                helper.runTarget( newBuildFile, ISDKConstants.TARGET_COMPILE, null );
+//                
+//                /* copy files from freshly compiled theme to restore-location */
+//                File[] restoreFiles = newThemeDestDir.append("docroot").toFile().listFiles();
+//                
+//                for (File restoreFile : restoreFiles)
+//                {
+//                    if (!"_diffs".equals(restoreFile.getName()))
+//                    {
+//                        if (restoreFile.isDirectory())
+//                        {
+//                            FileUtils.copyDirectory( restoreFile, newThemeDestDir.toFile() );
+//                        }
+//                        else
+//                        {
+//                            
+//                        }
+//                    }
+//                }
+//                
+//                
+//                FileUtil.deleteDir( newThemeDestDir.toFile(), true );
+//            }
+//            catch( Exception e )
+//            {
+//                System.out.println(e);
+//            }
+//        }
+//        
+//        return restoreLocation;
+//    }
 
     protected void fullBuild(Map args, IProgressMonitor monitor) {
 		try {
@@ -255,7 +401,7 @@ public class ThemeCSSBuilder extends IncrementalProjectBuilder {
 		if (docroot != null && docroot.exists()) {
 			docroot.refreshLocal(IResource.DEPTH_INFINITE, null);
 		}
-
+		
 		return status;
 	}
 }

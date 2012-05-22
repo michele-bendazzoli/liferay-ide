@@ -12,6 +12,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.apache.commons.io.FileUtils;
 import org.eclipse.core.resources.IFile;
 import org.eclipse.core.resources.IFolder;
 import org.eclipse.core.resources.IResource;
@@ -472,7 +473,7 @@ public class BuildHelper
      *            a progress monitor, or <code>null</code> if progress reporting and cancellation are not desired
      * @return a possibly-empty array of error and warning status
      */
-    public IStatus[] publishDelta( IResourceDelta[] delta, IPath path, IProgressMonitor monitor )
+    public IStatus[] publishDelta( IResourceDelta[] delta, IPath path, IPath[] restorePaths, IProgressMonitor monitor )
     {
         if( delta == null )
             return EMPTY_STATUS;
@@ -483,7 +484,7 @@ public class BuildHelper
         int size2 = delta.length;
         for( int i = 0; i < size2; i++ )
         {
-            IStatus[] stat = publishDelta( delta[i], path, monitor );
+            IStatus[] stat = publishDelta( delta[i], path, restorePaths, monitor );
             addArrayToList( status, stat );
         }
 
@@ -503,7 +504,7 @@ public class BuildHelper
      *            a progress monitor, or <code>null</code> if progress reporting and cancellation are not desired
      * @return a possibly-empty array of error and warning status
      */
-    public IStatus[] publishDelta( IResourceDelta delta, IPath path, IProgressMonitor monitor )
+    public IStatus[] publishDelta( IResourceDelta delta, IPath path, IPath[] restorePaths, IProgressMonitor monitor )
     {
         List<IStatus> status = new ArrayList<IStatus>( 2 );
 
@@ -518,7 +519,7 @@ public class BuildHelper
             {
                 if( kind2 == IResourceDelta.REMOVED )
                 {
-                    deleteFile( path, file );
+                    deleteFile( path, file, restorePaths );
                 }
                 else
                 {
@@ -574,7 +575,7 @@ public class BuildHelper
         int size = childDeltas.length;
         for( int i = 0; i < size; i++ )
         {
-            IStatus[] stat = publishDelta( childDeltas[i], path, monitor );
+            IStatus[] stat = publishDelta( childDeltas[i], path, restorePaths, monitor );
             addArrayToList( status, stat );
         }
 
@@ -617,7 +618,7 @@ public class BuildHelper
         return diffsRelativePath;
     }
 
-    private static void deleteFile( IPath path, IFile file ) throws CoreException
+    private static void deleteFile( IPath path, IFile file, IPath[] restorePaths ) throws CoreException
     {
         IPath diffsPath = file.getProjectRelativePath();
         IPath diffsRelativePath = getDiffsRelativePath( diffsPath );
@@ -626,10 +627,38 @@ public class BuildHelper
         {
 //            IPath path2 = path.append( file.getProjectRelativePath() ).append( file.getName() );
             IPath path2 = path.append(diffsRelativePath);
-
-            if( path2.toFile().exists() && !path2.toFile().delete() )
-                throw new CoreException( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
-                    Messages.errorDeleting, path2 ), null ) );
+            
+            // restore this file from the first restorePaths that matches
+            boolean restored = false;
+            
+            for (IPath restorePath : restorePaths)
+            {
+                final File restoreFile = restorePath.append( diffsRelativePath ).toFile();
+                
+                if (restoreFile.exists()) 
+                {
+                    try
+                    {
+                        FileUtils.copyFile( restoreFile, path2.toFile() );
+                        restored = true;
+                        break;
+                    }
+                    catch( IOException e )
+                    {
+                        throw new CoreException( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
+                            "Error restoring theme file.", path2 ), null ) );
+                    }
+                }
+            }
+            
+            if (!restored)
+            {
+                if( path2.toFile().exists() && !path2.toFile().delete() )
+                {
+                    throw new CoreException( new Status( IStatus.ERROR, ThemeCore.PLUGIN_ID, 0, NLS.bind(
+                        Messages.errorDeleting, path2 ), null ) );
+                }
+            }
         }
     }
 

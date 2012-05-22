@@ -404,4 +404,21 @@ public class CoreUtil {
 			}
 		}
 	}
+
+    public static IPath getResourceLocation( IResource resource )
+    {
+        IPath retval = null;
+        
+        if (resource != null)
+        {
+            retval = resource.getLocation();
+            
+            if (retval == null)
+            {
+                retval = resource.getRawLocation();
+            }
+        }
+
+        return retval;
+    }
 }
